@@ -1,0 +1,123 @@
+provider "aws" {
+   region = "ap-south-1"
+   profile = "default" 
+}
+
+
+
+resource "aws_vpc" "terraform-vpc" {
+  cidr_block       = "172.16.0.0/16"
+  enable_dns_hostnames = true
+  tags = {
+    Name = "terraform-demo-vpc"
+  }
+}
+
+resource "aws_security_group" "terraform_private_sg" {
+  description = "Allow limited inbound external traffic"
+  vpc_id      = "${aws_vpc.terraform-vpc.id}"
+  name        = "terraform_ec2_private_sg"
+
+ 
+ingress {
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 80
+    to_port     = 80
+  }
+
+  ingress {
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    from_port   = 443
+    to_port     = 443
+  }
+
+ 
+  tags = {
+    Name = "ec2-private-sg"
+  }
+}
+
+output "aws_security_gr_id" {
+  value = "${aws_security_group.terraform_private_sg.id}"
+}
+
+
+resource "aws_subnet" "terraform-subnet_1" {
+  vpc_id     = "${aws_vpc.terraform-vpc.id}"
+  cidr_block = "172.16.10.0/24"
+  availability_zone = "ap-south-1a"
+
+  tags = {
+    Name = "terraform-subnet_1"
+  }
+}
+
+output "aws_subnet_subnet_1" {
+  value = "${aws_subnet.terraform-subnet_1.id}"
+}
+
+resource "aws_instance" "terraform" {
+    ami = "ami-00bf4ae5a7909786c"
+    instance_type = "t2.micro"
+    vpc_security_group_ids =["${aws_security_group.terraform_private_sg.id}" ]
+    subnet_id = "${aws_subnet.terraform-subnet_1.id}"
+    key_name = "terraform-key"
+    count         = 2
+    associate_public_ip_address = true
+    tags = {
+      Name              = "terraform_ec2_wapp_awsdev"
+      Environment       = "development"
+      Project           = "DEMO-TERRAFORM"
+    }
+}
+
+
+output "instance_id_list"     { value = ["${aws_instance.terraform.*.id}"] }
+
+
+resource "null_resource"  "nullremote1" {
+
+
+
+connection {
+    type     = "ssh"
+    user     = "ec2-user"
+    private_key = file("C:/Users/Vysakh M/Downloads/terraform-key.pem")
+    host     = "aws_instance.terraform.public_ip"
+  }
+
+provisioner "remote-exec" {
+    inline = [
+      "sudo yum  install httpd  -y",
+      "sudo  yum  install php  -y",
+      "sudo systemctl start httpd",
+      "sudo systemctl enable httpd"
+    ]
+  }
+
+
+data "aws_s3_bucket" "selected" {
+  bucket = "a-test-bucket"
+}
+
+resource "aws_cloudfront_distribution" "test" {
+  origin {
+    domain_name = data.aws_s3_bucket.selected.bucket_domain_name
+    origin_id   = "s3-selected-bucket"
+  }
+}
+
+
+resource "aws_lb" "test" {
+  name               = "test-lb-tf"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.terraform_private_sg.id]
+  subnets            = aws_subnet.public.terraform-subnet_1.id
+
+  enable_deletion_protection = true
+   }
+  }
+}
